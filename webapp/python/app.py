@@ -57,7 +57,20 @@ def user_locked(user):
         return None
     cur = get_db().cursor()
     cur.execute(
-        'SELECT COUNT(1) AS failures FROM login_log WHERE user_id = %s AND id > IFNULL((select id from login_log where user_id = %s AND succeeded = 1 ORDER BY id DESC LIMIT 1), 0);',
+        '''
+        SELECT
+            COUNT(1) AS failures
+        FROM login_log
+        WHERE
+            user_id = %s
+            AND id > IFNULL((
+                select id
+                from login_log
+                where user_id = %s
+                AND succeeded = 1
+                ORDER BY id DESC
+                LIMIT 1), 0);
+        ''',
         (user['id'], user['id'])
     )
     log = cur.fetchone()
@@ -68,7 +81,21 @@ def ip_banned():
     global config
     cur = get_db().cursor()
     cur.execute(
-        'SELECT COUNT(1) AS failures FROM login_log WHERE ip = %s AND id > IFNULL((select id from login_log where ip = %s AND succeeded = 1 ORDER BY id DESC LIMIT 1), 0)',
+        '''
+        SELECT
+            COUNT(1) AS failures
+        FROM login_log
+        WHERE
+            ip = %s
+            AND id > IFNULL((
+                select id
+                from login_log
+                where
+                    ip = %s
+                    AND succeeded = 1
+                ORDER BY id DESC
+                LIMIT 1), 0)
+        ''',
         (request.remote_addr, request.remote_addr)
     )
     log = cur.fetchone()
@@ -121,7 +148,15 @@ def last_login():
 
     cur = get_db().cursor()
     cur.execute(
-        'SELECT * FROM login_log WHERE succeeded = 1 AND user_id = %s ORDER BY id DESC LIMIT 2',
+        '''
+        SELECT *
+        FROM login_log
+        WHERE
+            succeeded = 1
+            AND user_id = %s
+        ORDER BY id DESC
+        LIMIT 2
+        ''',
         (user['id'],)
     )
     rows = cur.fetchall()
@@ -134,17 +169,47 @@ def banned_ips():
 
     cur = get_db().cursor()
     cur.execute(
-        'SELECT ip FROM (SELECT ip, MAX(succeeded) as max_succeeded, COUNT(1) as cnt FROM login_log GROUP BY ip) AS t0 WHERE t0.max_succeeded = 0 AND t0.cnt >= %s',
+        '''
+        SELECT ip
+        FROM (
+            SELECT
+                ip,
+                MAX(succeeded) as max_succeeded,
+                COUNT(1) as cnt
+            FROM login_log
+            GROUP BY ip
+        ) AS t0
+        WHERE
+            t0.max_succeeded = 0
+            AND t0.cnt >= %s
+        ''',
         (threshold,)
     )
     not_succeeded = cur.fetchall()
     ips = [x['ip'] for x in not_succeeded]
 
-    cur.execute('SELECT ip, MAX(id) AS last_login_id FROM login_log WHERE succeeded = 1 GROUP by ip')
+    cur.execute('''
+        SELECT
+            ip,
+            MAX(id) AS last_login_id
+        FROM login_log
+        WHERE
+            succeeded = 1
+        GROUP by ip
+        '''
+    )
     last_succeeds = cur.fetchall()
 
+    # N+1
     for row in last_succeeds:
-        cur.execute('SELECT COUNT(1) AS cnt FROM login_log WHERE ip = %s AND %s < id', (row['ip'], row['last_login_id']))
+        cur.execute('''
+            SELECT
+                COUNT(1) AS cnt
+            FROM login_log
+            WHERE
+                ip = %s
+                AND %s < id
+            ''', (row['ip'], row['last_login_id']))
         count = cur.fetchone()['cnt']
         if threshold <= count:
             ips.append(row['ip'])
@@ -157,18 +222,52 @@ def locked_users():
     threshold = config['user_lock_threshold']
 
     cur = get_db().cursor()
-    cur.execute(
-        'SELECT user_id, login FROM (SELECT user_id, login, MAX(succeeded) as max_succeeded, COUNT(1) as cnt FROM login_log GROUP BY user_id) AS t0 WHERE t0.user_id IS NOT NULL AND t0.max_succeeded = 0 AND t0.cnt >= %s',
+    cur.execute('''
+        SELECT
+            user_id,
+            login
+        FROM (
+            SELECT
+                user_id,
+                login,
+                MAX(succeeded) as max_succeeded,
+                COUNT(1) as cnt
+            FROM login_log
+            GROUP BY user_id
+        ) AS t0
+        WHERE
+            t0.user_id IS NOT NULL
+            AND t0.max_succeeded = 0
+            AND t0.cnt >= %s
+        ''',
         (threshold,)
     )
     not_succeeded = cur.fetchall()
     ips = [x['login'] for x in not_succeeded]
 
-    cur.execute('SELECT user_id, login, MAX(id) AS last_login_id FROM login_log WHERE user_id IS NOT NULL AND succeeded = 1 GROUP BY user_id')
+    cur.execute('''
+        SELECT
+            user_id,
+            login,
+            MAX(id) AS last_login_id
+        FROM login_log
+        WHERE
+            user_id IS NOT NULL
+            AND succeeded = 1
+        GROUP BY user_id
+        ''')
     last_succeeds = cur.fetchall()
 
+    # N+1
     for row in last_succeeds:
-        cur.execute('SELECT COUNT(1) AS cnt FROM login_log WHERE user_id = %s AND %s < id', (row['user_id'], row['last_login_id']))
+        cur.execute('''
+        SELECT
+            COUNT(1) AS cnt
+        FROM login_log
+        WHERE
+            user_id = %s
+            AND %s < id
+        ''', (row['user_id'], row['last_login_id']))
         count = cur.fetchone()['cnt']
         if threshold <= count:
             ips.append(row['login'])
