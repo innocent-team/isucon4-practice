@@ -312,6 +312,14 @@ def report():
     response.status_code = 200
     return response
 
+from wsgi_lineprof.middleware import LineProfilerMiddleware
+from wsgi_lineprof.filters import FilenameFilter
+profile_app = LineProfilerMiddleware(
+    app,
+    filters=[FilenameFilter('app.py')],
+    stream=open('lineprof.log', 'w'),
+)
+
 if __name__ == '__main__':
     load_config()
     port = int(os.environ.get('PORT', '5000'))
