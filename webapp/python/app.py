@@ -39,10 +39,10 @@ def get_db():
     return top.database
 
 def calculate_password_hash(password, salt):
-    return hashlib.sha256(password + ':' + salt).hexdigest()
+    return hashlib.sha256(bytes(password + ':' + salt, encoding='utf-8')).hexdigest()
 
 def login_log(succeeded, login, user_id=None):
-    print('login_log: ' + str(succeeded) + ', ' + login + ', ' + str(user_id))
+    print(('login_log: ' + str(succeeded) + ', ' + login + ', ' + str(user_id)))
     db = get_db()
     cur = db.cursor()
     cur.execute(
@@ -138,7 +138,7 @@ def banned_ips():
         (threshold,)
     )
     not_succeeded = cur.fetchall()
-    ips = map(lambda x: x['ip'], not_succeeded)
+    ips = [x['ip'] for x in not_succeeded]
 
     cur.execute('SELECT ip, MAX(id) AS last_login_id FROM login_log WHERE succeeded = 1 GROUP by ip')
     last_succeeds = cur.fetchall()
@@ -162,7 +162,7 @@ def locked_users():
         (threshold,)
     )
     not_succeeded = cur.fetchall()
-    ips = map(lambda x: x['login'], not_succeeded)
+    ips = [x['login'] for x in not_succeeded]
 
     cur.execute('SELECT user_id, login, MAX(id) AS last_login_id FROM login_log WHERE user_id IS NOT NULL AND succeeded = 1 GROUP BY user_id')
     last_succeeds = cur.fetchall()
@@ -189,7 +189,7 @@ def login():
         session['user_id'] = user['id']
         return redirect(url_for('mypage'))
     else:
-        print('err = ' + err)
+        print(('err = ' + err))
         if err == 'locked':
             flash('This account is locked.')
         elif err == 'banned':
