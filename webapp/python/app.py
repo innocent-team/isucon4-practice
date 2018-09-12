@@ -7,7 +7,7 @@ from flask import (
 )
 from werkzeug.contrib.fixers import ProxyFix
 
-import os, hashlib
+import os, hashlib, sys
 from datetime import date
 
 config = {}
@@ -49,6 +49,27 @@ def login_log(succeeded, login, user_id=None):
         'INSERT INTO login_log (`created_at`, `user_id`, `login`, `ip`, `succeeded`) VALUES (NOW(),%s,%s,%s,%s)',
         (user_id, login, request.remote_addr, 1 if succeeded else 0)
     )
+    if succeeded:
+        cur.execute(
+            'INSERT INTO ip_failed VALUE (%s, 0) ON DUPLICATE KEY UPDATE count = 0',
+            (request.remote_addr,)
+        )
+        if user_id:
+            cur.execute(
+                'INSERT INTO user_failed VALUE (%s, 0) ON DUPLICATE KEY UPDATE count = 0',
+                (user_id,)
+            )
+    else:
+        cur.execute(
+            'INSERT INTO ip_failed VALUE (%s, 1) ON DUPLICATE KEY UPDATE count = count + 1',
+            (request.remote_addr,)
+        )
+        if user_id:
+            cur.execute(
+                'INSERT INTO user_failed VALUE (%s, 1) ON DUPLICATE KEY UPDATE count = count + 1',
+                (user_id,)
+            )
+
     cur.close()
     db.commit()
 
@@ -56,49 +77,18 @@ def user_locked(user):
     if not user:
         return None
     cur = get_db().cursor()
-    cur.execute(
-        '''
-        SELECT
-            COUNT(1) AS failures
-        FROM login_log
-        WHERE
-            user_id = %s
-            AND id > IFNULL((
-                select id
-                from login_log
-                where user_id = %s
-                AND succeeded = 1
-                ORDER BY id DESC
-                LIMIT 1), 0);
-        ''',
-        (user['id'], user['id'])
-    )
+    cur.execute('SELECT count as failures FROM user_failed WHERE id = %s', (user['id'],))
     log = cur.fetchone()
+    if not log: log = {'failures': 0}
     cur.close()
     return config['user_lock_threshold'] <= log['failures']
 
 def ip_banned():
     global config
     cur = get_db().cursor()
-    cur.execute(
-        '''
-        SELECT
-            COUNT(1) AS failures
-        FROM login_log
-        WHERE
-            ip = %s
-            AND id > IFNULL((
-                select id
-                from login_log
-                where
-                    ip = %s
-                    AND succeeded = 1
-                ORDER BY id DESC
-                LIMIT 1), 0)
-        ''',
-        (request.remote_addr, request.remote_addr)
-    )
+    cur.execute('SELECT count as failures FROM ip_failed WHERE ip = %s', (request.remote_addr,))
     log = cur.fetchone()
+    if not log: log = {'failures': 0}
     cur.close()
     return config['ip_ban_threshold'] <= log['failures']
 
@@ -321,8 +311,10 @@ profile_app = LineProfilerMiddleware(
 )
 
 if __name__ == '__main__':
+    import  bjoern
     load_config()
-    port = int(os.environ.get('PORT', '5000'))
-    app.run(debug=1, host='0.0.0.0', port=port)
+    port = int(os.environ.get('PORT', '8080'))
+    #app.run(debug=1, host='0.0.0.0', port=port)
+    bjoern.run(app, '0.0.0.0', port)
 else:
     load_config()
